@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Blackjack (HTML Canvas)</title>
+<style>
+    body {
+        margin: 0;
+        background: #000;
+        overflow: hidden;
+    }
+    canvas {
+        display: block;
+        margin: 0 auto;
+        background: #1e1e1e;
+    }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="1280" height="720"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let WIDTH = 1280;
+let HEIGHT = 720;
+
+let balance = 100;
+let wins = 0;
+let rounds = 0;
+let bet = 10;
+
+let player = [];
+let dealer = [];
+let deck = [];
+let done = false;
+let message = "Press NEW ROUND to start";
+
+let can_change_bet = true;
+let show_newround_button = true;
+let round_active = false;
+
+let START_SCREEN = 0;
+let GAME = 1;
+let LOSE_SCREEN = 2;
+let state = START_SCREEN;
+
+class Button {
+    constructor(x, y, w, h, text) {
+        this.x = x; this.y = y;
+        this.w = w; this.h = h;
+        this.text = text;
+    }
+    draw() {
+        ctx.fillStyle = "#444";
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        ctx.strokeStyle = "#ccc";
+        ctx.strokeRect(this.x, this.y, this.w, this.h);
+        ctx.fillStyle = "#fff";
+        ctx.font = "26px Arial";
+        ctx.fillText(this.text, this.x + this.w/2 - ctx.measureText(this.text).width/2, this.y + 35);
+    }
+    clicked(mx, my) {
+        return mx >= this.x && mx <= this.x + this.w &&
+                my >= this.y && my <= this.y + this.h;
+    }
+}
+
+let centerX = WIDTH / 2;
+
+let hit_btn = new Button(centerX - 200, 630, 150, 55, "HIT");
+let stand_btn = new Button(centerX + 50, 630, 150, 55, "STAND");
+let new_btn = new Button(centerX - 100, 560, 200, 55, "NEW ROUND");
+
+
+let bet5_btn = new Button(WIDTH - 180, 350, 120, 50, "$5");
+let bet10_btn = new Button(WIDTH - 180, 410, 120, 50, "$10");
+let bet20_btn = new Button(WIDTH - 180, 470, 120, 50, "$20");
+let bet50_btn = new Button(WIDTH - 180, 530, 120, 50, "$50");
+
+let restart_btn = new Button(centerX - 100, 500, 200, 70, "RESTART");
+
+function new_deck() {
+    const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+    const suits = ['♠','♥','♦','♣'];
+    let deck = [];
+    for (let r of ranks) for (let s of suits)
+        deck.push({rank: r, suit: s});
+    deck.sort(() => Math.random() - 0.5);
+    return deck;
+}
+
+function card_value(card) {
+    if (["J","Q","K"].includes(card.rank)) return 10;
+    if (card.rank === "A") return 11;
+    return parseInt(card.rank);
+}
+
+function calc_best_total(hand) {
+    let total = hand.map(card_value).reduce((a,b)=>a+b, 0);
+    let aces = hand.filter(c=>c.rank==="A").length;
+    while (total > 21 && aces > 0) {
+        total -= 10;
+        aces--;
+    }
+    return total;
+}
+
+function init_round() {
+    deck = new_deck();
+    player = [deck.pop(), deck.pop()];
+    dealer = [deck.pop(), deck.pop()];
+
+    done = false;
+    rounds++;
+    can_change_bet = false;
+    show_newround_button = false;
+    message = "Bet locked: $" + bet;
+    round_active = true;
+}
+
+function result_message() {
+    let p = calc_best_total(player);
+    let d = calc_best_total(dealer);
+
+    show_newround_button = true;
+    round_active = false;
+
+    if (p > 21) {
+        balance -= bet;
+        can_change_bet = true;
+        return `You busted! Dealer wins. -$${bet}`;
+    }
+    if (d > 21) {
+        balance += bet;
+        wins++;
+        can_change_bet = true;
+        return `Dealer busted — You win! +$${bet}`;
+    }
+    if (p === 21 && player.length === 2) {
+        let bonus = Math.floor(bet * 1.5);
+        balance += bonus;
+        wins++;
+        can_change_bet = true;
+        return `BLACKJACK! +$${bonus}`;
+    }
+    if (d === 21 && dealer.length === 2) {
+        balance -= bet;
+        can_change_bet = true;
+        return `Dealer Blackjack. -$${bet}`;
+    }
+    if (p === d) {
+        can_change_bet = true;
+        return "Push (tie).";
+    }
+    if (p > d) {
+        balance += bet;
+        wins++;
+        can_change_bet = true;
+        return `You win! +$${bet}`;
+    }
+    balance -= bet;
+    can_change_bet = true;
+    return `Dealer wins. -$${bet}`;
+}
+
+function draw_text(text, x, y, size=26) {
+    ctx.fillStyle = "#fff";
+    ctx.font = size + "px Arial";
+    ctx.fillText(text, x, y);
+}
+
+function draw_centered(text, y, size=55) {
+    ctx.fillStyle = "#fff";
+    ctx.font = size + "px Arial";
+    ctx.fillText(text, (WIDTH - ctx.measureText(text).width) / 2, y);
+}
+
+function draw_card(card, x, y) {
+    ctx.fillStyle = "#2a4c7a";
+    ctx.fillRect(x, y, 70, 100);
+    ctx.fillStyle = "#fff";
+    ctx.font = "26px Arial";
+    ctx.fillText(card.rank + card.suit, x + 10, y + 55);
+}
+
+function draw_game() {
+    ctx.fillStyle = "#1e1e1e";
+    ctx.fillRect(0,0,WIDTH,HEIGHT);
+
+    draw_text(`Balance: $${balance}`, 20, 20);
+    draw_text(`Wins: ${wins}`, 20, 50);
+    draw_text(`Rounds: ${rounds}`, 20, 80);
+    draw_text(`Bet: $${bet}`, 20, 110);
+
+    draw_text("Dealer", 350, 20);
+    let x = centerX - 160;
+
+    dealer.forEach((c, i) => {
+        if (i === 1 && !done) {
+            ctx.fillStyle = "#555";
+            ctx.fillRect(x, 150, 70, 100);
+            draw_text("?", x + 25, 200);
+        } else {
+            draw_card(c, x, 150);
+        }
+        x += 90;
+    });
+
+    draw_text(`Total: ${done ? calc_best_total(dealer) : "??"}`, 365, 260);
+
+    draw_text("You", 370, 300);
+    x = centerX - 160;
+    player.forEach((c)=> {
+        draw_card(c, x, 350);
+        x += 90;
+    });
+
+    draw_text(`Total: ${calc_best_total(player)}`, 365, 460);
+
+    draw_centered(message, 520, 26);
+
+
+    if (round_active) {
+        hit_btn.draw();
+        stand_btn.draw();
+    }
+    if (show_newround_button) new_btn.draw();
+    if (can_change_bet) {
+        bet5_btn.draw(); bet10_btn.draw(); bet20_btn.draw(); bet50_btn.draw();
+    }
+}
+
+function draw_start_screen() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0,0,WIDTH,HEIGHT);
+    draw_centered("BLACKJACK", 200);
+    draw_centered("Click to Start", 330, 30);
+}
+
+function draw_lose_screen() {
+    ctx.fillStyle = "#400";
+    ctx.fillRect(0,0,WIDTH,HEIGHT);
+    draw_centered("YOU LOST ALL YOUR MONEY", 200);
+    draw_centered("Click RESTART to play again", 300, 30);
+    restart_btn.draw();
+}
+
+canvas.addEventListener("mousedown", (e)=>{
+    let rect = canvas.getBoundingClientRect();
+    let mx = e.clientX - rect.left;
+    let my = e.clientY - rect.top;
+
+    if (state === START_SCREEN) {
+        state = GAME;
+        balance = 100;
+        wins = 0;
+        rounds = 0;
+        return;
+    }
+
+    if (state === LOSE_SCREEN) {
+        if (restart_btn.clicked(mx,my)) {
+            state = START_SCREEN;
+            balance = 100;
+            wins = 0;
+            rounds = 0;
+        }
+        return;
+    }
+
+    if (can_change_bet) {
+        if (bet5_btn.clicked(mx,my)) bet = 5;
+        if (bet10_btn.clicked(mx,my)) bet = 10;
+        if (bet20_btn.clicked(mx,my)) bet = 20;
+        if (bet50_btn.clicked(mx,my)) bet = 50;
+    }
+
+    if (show_newround_button && new_btn.clicked(mx,my)) {
+        if (balance <= 0) state = LOSE_SCREEN;
+        else init_round();
+    }
+
+    if (round_active && hit_btn.clicked(mx,my) && !done) {
+        player.push(deck.pop());
+        if (calc_best_total(player) > 21) {
+            done = true;
+            message = result_message();
+        }
+    }
+
+    if (round_active && stand_btn.clicked(mx,my) && !done) {
+        while (calc_best_total(dealer) < 17) dealer.push(deck.pop());
+        done = true;
+        message = result_message();
+    }
+
+    if (done && balance <= 0) state = LOSE_SCREEN;
+});
+
+function loop() {
+    if (state === START_SCREEN) draw_start_screen();
+    else if (state === LOSE_SCREEN) draw_lose_screen();
+    else draw_game();
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
